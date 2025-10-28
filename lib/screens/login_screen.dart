@@ -11,9 +11,10 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isObscure = true;
-  bool _isLoading = false; // 3.1 Estado de carga
+  bool _isLoading = false;
+  bool _emailInteracted = false;
+  bool _passInteracted = false;
 
-  // Cerebro de la lógica de las animaciones
   StateMachineController? controller;
   SMIBool? isChecking;
   SMIBool? isHandsUp;
@@ -21,90 +22,113 @@ class _LoginScreenState extends State<LoginScreen> {
   SMITrigger? trigFail;
   SMINumber? numLook;
 
-  // FocusNode
   final emailFocus = FocusNode();
   final passFocus = FocusNode();
-
-  // Timer
   Timer? _typingDebounce;
 
-  // Controllers
   final emailController = TextEditingController();
   final passController = TextEditingController();
 
-  // 2.1 Cambiar a lista dinámica de errores
-  List<String> _currentErrors = [];
+  String? _emailError;
 
-  // 2.2 Validadores mejorados
+  // 1.1 Variables para el checklist de contraseña
+  final Map<String, bool> _passwordValidation = {
+    'Mínimo 8 caracteres': false,
+    '1 mayúscula': false,
+    '1 minúscula': false,
+    '1 número': false,
+    '1 caracter especial': false,
+  };
+
+  // 1.2 Validación de email
   String? _validateEmail(String email) {
-    if (email.isEmpty) return null; // No mostrar error si está vacío
+    if (email.isEmpty) return 'El email es requerido';
     final regex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
     return regex.hasMatch(email) ? null : 'Email inválido';
   }
 
-  String? _validatePassword(String pass) {
-    if (pass.isEmpty) return null; // No mostrar error si está vacío
-
-    final errors = <String>[];
-    if (pass.length < 8) errors.add('Mínimo 8 caracteres');
-    if (!RegExp(r'[A-Z]').hasMatch(pass)) errors.add('1 mayúscula');
-    if (!RegExp(r'[a-z]').hasMatch(pass)) errors.add('1 minúscula');
-    if (!RegExp(r'\d').hasMatch(pass)) errors.add('1 número');
-    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(pass))
-      errors.add('1 caracter especial');
-
-    return errors.isEmpty ? null : errors.first; // Solo el primer error
-  }
-
-  // 2.3 Función para actualizar errores en vivo
-  void _updateErrors() {
-    final errors = <String>[];
-
-    final emailError = _validateEmail(emailController.text.trim());
-    final passError = _validatePassword(passController.text);
-
-    if (emailError != null) errors.add(emailError);
-    if (passError != null) errors.add(passError);
-
+  // 1.3 Validación mejorada de contraseña con checklist
+  void _validatePassword(String pass) {
     setState(() {
-      _currentErrors = errors;
+      _passwordValidation['Mínimo 8 caracteres'] = pass.length >= 8;
+      _passwordValidation['1 mayúscula'] = RegExp(r'[A-Z]').hasMatch(pass);
+      _passwordValidation['1 minúscula'] = RegExp(r'[a-z]').hasMatch(pass);
+      _passwordValidation['1 número'] = RegExp(r'\d').hasMatch(pass);
+      _passwordValidation['1 caracter especial'] = RegExp(
+        r'[^A-Za-z0-9]',
+      ).hasMatch(pass);
     });
   }
 
-  // 1.1 Función de login mejorada con delay para Rive
-  Future<void> _onLogin() async {
-    if (_isLoading) return; // 3.2 Evitar spam
+  // 1.4 Verificar si la contraseña es completamente válida
+  bool get _isPasswordValid {
+    return _passwordValidation.values.every((isValid) => isValid);
+  }
 
-    // Cerrar teclado inmediatamente
+  void _updateEmailError() {
+    if (_emailInteracted) {
+      setState(() {
+        _emailError = _validateEmail(emailController.text.trim());
+      });
+    }
+  }
+
+  void _updatePasswordError() {
+    if (_passInteracted) {
+      _validatePassword(passController.text);
+    }
+  }
+
+  List<String> _validateAll() {
+    final errors = <String>[];
+
+    final emailValidation = _validateEmail(emailController.text.trim());
+    if (emailValidation != null) errors.add(emailValidation);
+
+    if (!_isPasswordValid)
+      errors.add('La contraseña no cumple todos los requisitos');
+
+    return errors;
+  }
+
+  // 2.1 Función de login modificada - animación DESPUÉS de la carga
+  Future<void> _onLogin() async {
+    if (_isLoading) return;
+
+    // Activar carga inmediatamente
+    setState(() {
+      _isLoading = true;
+      _emailInteracted = true;
+      _passInteracted = true;
+    });
+
     FocusScope.of(context).unfocus();
     _typingDebounce?.cancel();
 
-    // 3.3 ACTIVAR estado de carga YA para evitar double tap/spam
-    // Deshabilita el botón inmediatamente mientras normalizamos y esperamos un frame
-    setState(() {
-      _isLoading = true;
-    });
-
-    // 1.2 Normalizar estado inmediatamente (bajar manos, apagar checking, centrar mirada)
+    // 2.2 Normalizar estado del oso inmediatamente
     isHandsUp?.change(false);
     isChecking?.change(false);
     numLook?.value = 50.0;
 
-    // 1.3 Esperar un frame para que Rive procese los cambios
-    await Future.delayed(Duration.zero);
+    // 2.3 Simular proceso de carga/verificación (2 segundos)
+    await Future.delayed(const Duration(seconds: 2));
 
-    // Validación final (actualiza _currentErrors)
-    _updateErrors();
+    // Validar después de la carga
+    final finalErrors = _validateAll();
+    setState(() {
+      _emailError = _validateEmail(emailController.text.trim());
+    });
 
-    // 1.4 Disparar triggers después de la normalización
-    if (_currentErrors.isEmpty) {
+    // 2.4 DESPUÉS de la carga, disparar las animaciones del oso
+    if (finalErrors.isEmpty) {
       trigSuccess?.fire();
+      // Esperar a que la animación de éxito se complete
+      await Future.delayed(const Duration(milliseconds: 1500));
     } else {
       trigFail?.fire();
+      // Esperar a que la animación de fallo se complete
+      await Future.delayed(const Duration(milliseconds: 1200));
     }
-
-    // 3.4 Simular carga y resetear (mantener spinner por ~1s)
-    await Future.delayed(const Duration(seconds: 1));
 
     if (mounted) {
       setState(() {
@@ -117,18 +141,25 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
 
-    // 2.4 Listeners para validación en vivo
-    emailController.addListener(_updateErrors);
-    passController.addListener(_updateErrors);
+    emailController.addListener(_updateEmailError);
+    passController.addListener(_updatePasswordError);
 
     emailFocus.addListener(() {
-      if (emailFocus.hasFocus) {
-        isHandsUp?.change(false);
-        numLook?.value = 50.0;
+      if (!emailFocus.hasFocus) {
+        setState(() {
+          _emailInteracted = true;
+        });
+        _updateEmailError();
       }
     });
 
     passFocus.addListener(() {
+      if (!passFocus.hasFocus) {
+        setState(() {
+          _passInteracted = true;
+        });
+        _updatePasswordError();
+      }
       isHandsUp?.change(passFocus.hasFocus);
     });
   }
@@ -182,15 +213,17 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (mounted) isChecking?.change(false);
                     },
                   );
+
+                  if (value.isNotEmpty && !_emailInteracted) {
+                    setState(() {
+                      _emailInteracted = true;
+                    });
+                  }
+                  _updateEmailError();
                 },
                 keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
-                  // 2.5 Solo mostrar error específico de email si existe
-                  errorText:
-                      _currentErrors.isNotEmpty &&
-                          _currentErrors.first.contains('Email')
-                      ? _currentErrors.first
-                      : null,
+                  errorText: _emailError,
                   hintText: "Email",
                   prefixIcon: const Icon(Icons.email),
                   border: OutlineInputBorder(
@@ -207,15 +240,20 @@ class _LoginScreenState extends State<LoginScreen> {
                 controller: passController,
                 onChanged: (value) {
                   isHandsUp?.change(true);
+
+                  if (value.isNotEmpty && !_passInteracted) {
+                    setState(() {
+                      _passInteracted = true;
+                    });
+                  }
+                  _updatePasswordError();
                 },
                 obscureText: _isObscure,
                 keyboardType: TextInputType.visiblePassword,
                 decoration: InputDecoration(
-                  // 2.6 Solo mostrar error específico de password si existe
-                  errorText:
-                      _currentErrors.isNotEmpty &&
-                          !_currentErrors.first.contains('Email')
-                      ? _currentErrors.first
+                  // 1.5 Mostrar error general si se interactuó y no es válida
+                  errorText: _passInteracted && !_isPasswordValid
+                      ? 'La contraseña no cumple todos los requisitos'
                       : null,
                   hintText: "Password",
                   prefixIcon: const Icon(Icons.lock),
@@ -235,6 +273,46 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
 
+              // 1.6 Checklist dinámico de contraseña - SIEMPRE mostrar cuando se interactúa
+              if (_passInteracted) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: size.width,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _passwordValidation.entries.map((entry) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          children: [
+                            Icon(
+                              entry.value ? Icons.check_circle : Icons.cancel,
+                              color: entry.value ? Colors.green : Colors.red,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              entry.key,
+                              style: TextStyle(
+                                color: entry.value ? Colors.green : Colors.red,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 10),
 
               SizedBox(
@@ -248,29 +326,49 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 10),
 
-              // 3.5 Botón con estado de carga
+              // 3.1 Botón con spinner atractivo
               MaterialButton(
                 minWidth: size.width,
                 height: 50,
-                color: Colors.blue,
+                color: _isLoading ? Colors.grey[700] : Colors.grey,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
                 onPressed: _isLoading ? null : _onLogin,
                 child: _isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.white,
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // 3.2 Spinner colorido
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3,
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                Colors.yellow,
+                              ),
+                              backgroundColor: Colors.orange[800],
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 16),
+                          Text(
+                            "Verificando...",
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
                       )
                     : const Text(
                         "Login",
-                        style: TextStyle(color: Colors.white),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
                       ),
               ),
 
